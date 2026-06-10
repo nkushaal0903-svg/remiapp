@@ -11,6 +11,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ingest import ingest_file
@@ -57,6 +58,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve frontend index.html from the project root
+FRONTEND_INDEX = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
+
+
+@app.get("/")
+async def root():
+    return FileResponse(FRONTEND_INDEX)
 
 
 @app.get("/health")
