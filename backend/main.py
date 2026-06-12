@@ -9,13 +9,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ingest import ingest_file
 from retrieval import chunk_text, embed_chunks, retrieve
+from i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES, get_language_name, get_locale, t
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
@@ -28,7 +29,7 @@ MAX_CHARS = 320_000
 DOCUMENT_STORE: dict[str, str] = {}
 CONVERSATION_HISTORY: dict[str, list[dict]] = {}
 
-SYSTEM_PROMPT_ASK = (
+BASE_SYSTEM_PROMPT_ASK = (
     "You are REMI, an assistant that answers questions about ONE document the "
     "user uploaded. Relevant excerpts from the document are provided to you. The "
     "user will often ask short, vague, or generic questions ('what about the costs?', "
@@ -40,6 +41,11 @@ SYSTEM_PROMPT_ASK = (
     "You may only see part of the document. Answer from the provided chunks; "
     "if the answer might be elsewhere in the document, say so rather than guessing."
 )
+
+
+def system_prompt_ask(lang: str = DEFAULT_LOCALE) -> str:
+    """Return the ask-system prompt localized to the user's language."""
+    return f"{BASE_SYSTEM_PROMPT_ASK} {t('respond_in_language', lang, language=get_language_name(lang, 'en'))}"
 
 
 @asynccontextmanager
@@ -73,10 +79,17 @@ def health():
     return {"status": "ok"}
 
 
-async def call_llm(messages: list[dict]) -> str:
+def resolve_locale(accept_language: str | None = None, lang: str | None = None) -> str:
+    """Resolve the active locale from an explicit code or Accept-Language header."""
+    if lang and lang in SUPPORTED_LOCALES:
+        return lang
+    return get_locale(accept_language)
+
+
+async def call_llm(messages: list[dict], lang: str = DEFAULT_LOCALE) -> str:
     """Call OpenAI chat-completions and return the assistant's content."""
     if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured.")
+        raise HTTPException(status_code=500, detail=t("api_key_missing", lang))
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
@@ -96,27 +109,29 @@ async def call_llm(messages: list[dict]) -> str:
         return data["choices"][0]["message"]["content"]
 
 
-async def summarize_text(text: str) -> str:
-    """Call OpenAI API to summarize the document text."""
+async def summarize_text(text: str, lang: str = DEFAULT_LOCALE) -> str:
+    """Call OpenAI API to summarize the document text in the user's language."""
     system_prompt = (
         "You are REMI. Summarize the document clearly: a 3-4 sentence overview, "
         "then the key points as a short bullet list. Be faithful to the document; "
-        "do not invent anything."
+        "do not invent anything. "
+        f"{t('respond_in_language', lang, language=get_language_name(lang, 'en'))}"
     )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": text},
     ]
-    return await call_llm(messages)
+    return await call_llm(messages, lang)
 
 
-async def rewrite_query(history: list[dict], question: str) -> str:
+async def rewrite_query(history: list[dict], question: str, lang: str = DEFAULT_LOCALE) -> str:
     """Rewrite a follow-up question into a standalone search query."""
     system_prompt = (
         "You are a search query rewriter. Given a conversation about a document "
         "and a follow-up question, rewrite the question into a concise standalone "
         "search query (3-6 keywords or a short phrase) that captures the user's "
-        "intent. Output ONLY the rewritten query, with no quotes, labels, or explanation."
+        "intent. Output ONLY the rewritten query, with no quotes, labels, or explanation. "
+        f"{t('respond_in_language', lang, language=get_language_name(lang, 'en'))}"
     )
 
     recent = history[-6:]  # last 3 Q&A pairs max
@@ -132,25 +147,31 @@ async def rewrite_query(history: list[dict], question: str) -> str:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    rewritten = await call_llm(messages)
+    rewritten = await call_llm(messages, lang)
     return rewritten.strip()
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    accept_language: str | None = Header(None, alias="accept-language"),
+    lang: str | None = Query(None),
+):
+    locale = resolve_locale(accept_language, lang)
+
     if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided.")
+        raise HTTPException(status_code=400, detail=t("no_file_provided", locale))
 
     ext = Path(file.filename).suffix.lower()
     if ext not in (".pdf", ".docx", ".pptx", ".txt", ".md"):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: '{ext}'. Supported: .pdf, .docx, .pptx, .txt, .md",
+            detail=t("unsupported_file_type", locale, ext=ext),
         )
 
     file_bytes = await file.read()
     if not file_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        raise HTTPException(status_code=400, detail=t("file_empty", locale))
 
     suffix = ext
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -169,7 +190,7 @@ async def upload(file: UploadFile = File(...)):
     if not text.strip():
         raise HTTPException(
             status_code=400,
-            detail="No extractable text found in the file.",
+            detail=t("no_extractable_text", locale),
         )
 
     # Truncate if too large for the model's context window
@@ -200,16 +221,19 @@ async def upload(file: UploadFile = File(...)):
     embed_chunks(document_id, chunks)
 
     try:
-        summary = await summarize_text(text)
+        summary = await summarize_text(text, locale)
     except httpx.HTTPStatusError as exc:
-        detail = f"LLM API error ({exc.response.status_code})."
+        detail = t("llm_api_error", locale, status=exc.response.status_code)
         try:
             detail = exc.response.json().get("error", {}).get("message", detail)
         except Exception:
             pass
         raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail=t("llm_request_failed", locale, error=str(exc)),
+        )
 
     return {
         "document_id": document_id,
@@ -227,21 +251,29 @@ class AskRequest(BaseModel):
 
 
 @app.post("/ask")
-async def ask(body: AskRequest):
+async def ask(
+    body: AskRequest,
+    accept_language: str | None = Header(None, alias="accept-language"),
+    lang: str | None = Query(None),
+):
+    locale = resolve_locale(accept_language, lang)
     document_id = body.document_id
     question = body.question.strip()
 
     if not question:
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+        raise HTTPException(status_code=400, detail=t("question_empty", locale))
 
     if document_id not in DOCUMENT_STORE:
-        raise HTTPException(status_code=404, detail="Document not found. Upload a file first.")
+        raise HTTPException(
+            status_code=404,
+            detail=t("document_not_found", locale),
+        )
 
     history = CONVERSATION_HISTORY.get(document_id, [])
 
     # 1. Rewrite the question into a standalone search query
     try:
-        search_query = await rewrite_query(history, question)
+        search_query = await rewrite_query(history, question, locale)
         if not search_query:
             search_query = question
     except Exception:
@@ -250,27 +282,30 @@ async def ask(body: AskRequest):
     # 2. Retrieve relevant chunks using the rewritten query
     chunks = retrieve(document_id, search_query, k=8)
     if not chunks:
-        raise HTTPException(status_code=404, detail="No document context found.")
+        raise HTTPException(status_code=404, detail=t("no_context_found", locale))
 
     context = "\n\n---\n\n".join(chunks)
 
     # Build messages: system -> retrieved excerpts -> history -> new question
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT_ASK}]
+    messages: list[dict] = [{"role": "system", "content": system_prompt_ask(locale)}]
     messages.append({"role": "user", "content": f"Here are relevant excerpts from the document:\n\n{context}"})
     messages.extend(history)
     messages.append({"role": "user", "content": question})
 
     try:
-        answer = await call_llm(messages)
+        answer = await call_llm(messages, locale)
     except httpx.HTTPStatusError as exc:
-        detail = f"LLM API error ({exc.response.status_code})."
+        detail = t("llm_api_error", locale, status=exc.response.status_code)
         try:
             detail = exc.response.json().get("error", {}).get("message", detail)
         except Exception:
             pass
         raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail=t("llm_request_failed", locale, error=str(exc)),
+        )
 
     # Update history
     history.append({"role": "user", "content": question})

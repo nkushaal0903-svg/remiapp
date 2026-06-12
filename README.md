@@ -18,6 +18,7 @@
 | 🔍 **In-memory RAG** | Sentence-transformer embeddings with cosine-similarity search |
 | 🎨 **Liquid Glass UI** | Modern glassmorphism frontend with zero build step |
 | ⚡ **Zero Database** | 100% in-memory — no Docker, no Postgres, no ChromaDB |
+| 🌐 **Multilingual** | Localized UI + API responses in English, Hindi, and Telugu |
 
 ---
 
@@ -102,12 +103,13 @@ python -m http.server 3000
 remiapp/
 ├── backend/
 │   ├── main.py           # FastAPI routes (upload, ask, health)
+│   ├── i18n.py           # Locale resolution + translation catalog
 │   ├── ingest.py         # File parsing (PDF, DOCX, PPTX, TXT, MD)
 │   ├── retrieval.py      # Chunking, embedding, similarity search
 │   ├── requirements.txt  # Python dependencies
 │   └── .env              # Your OpenAI API key
 ├── frontend/
-│   └── index.html        # Complete single-page UI
+│   └── index.html        # Complete single-page UI with language switcher
 └── README.md
 ```
 
@@ -121,7 +123,34 @@ remiapp/
 | `POST` | `/upload` | Upload a document (multipart/form-data) |
 | `POST` | `/ask`    | Ask a question about the uploaded document |
 
+Both `/upload` and `/ask` honor the `Accept-Language` header and an optional `lang` query parameter (`en`, `hi`, `ta`).
+
+### Supported languages
+
+REMI is localized into:
+
+| Locale | Language | Script |
+|--------|----------|--------|
+| `en`   | English  | Latin  |
+| `hi`   | Hindi    | Devanagari |
+| `te`   | Telugu   | Telugu |
+
+Switch languages from the header in the UI, or call the API with `?lang=hi` / `?lang=te`. The choice is persisted in `localStorage`.
+
 ### Example: Upload
+
+```bash
+curl -X POST "http://localhost:8000/upload?lang=te" \
+  -F "file=@document.pdf"
+```
+
+### Example: Ask
+
+```bash
+curl -X POST "http://localhost:8000/ask?lang=te" \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": "uuid-string", "question": "ప్రధాన నిర్ణయాలు ఏమిటి?"}'
+```
 
 ```bash
 curl -X POST "http://localhost:8000/upload" \
@@ -166,6 +195,15 @@ curl -X POST "http://localhost:8000/ask" \
 5. **Answer** — The LLM receives the relevant excerpts + conversation history and answers **only from the provided context**.
 
 ---
+
+## 🌍 i18n vs l10n
+
+This project follows the W3C/Mozilla distinction:
+
+- **Internationalization (i18n)** is the design and development that *enables* easy localization. REMI's i18n layer is the locale resolver, the `t()` helper, and the `data-i18n` markup in the frontend — none of these know Hindi or Telugu specifically, but they make adding those languages possible.
+- **Localization (l10n)** is the actual *adaptation* of content to a locale. The translation dictionaries in `backend/i18n.py` and the frontend `TRANSLATIONS` object are the l10n artifacts.
+
+Adding a fourth language (e.g. `kn` Kannada or `te` Telugu) only requires adding a new dictionary entry on both sides; the rest of the code stays unchanged.
 
 ## 🛠 Tech Stack
 

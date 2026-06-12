@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>REMI</title>
+    <title data-i18n="app_title">REMI</title>
     <style>
         :root {
             --glass-bg: rgba(255, 255, 255, 0.06);
@@ -125,6 +125,43 @@
             margin-top: 0.5rem;
             font-size: 1rem;
             font-weight: 400;
+        }
+
+        /* Language switcher */
+        .lang-switcher {
+            display: inline-flex;
+            gap: 0.35rem;
+            margin-top: 1rem;
+            padding: 0.35rem;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-pill);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 0 var(--glass-highlight);
+        }
+
+        .lang-switcher button {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 500;
+            padding: 0.4rem 0.85rem;
+            border-radius: var(--radius-pill);
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+
+        .lang-switcher button:hover {
+            color: var(--text-primary);
+        }
+
+        .lang-switcher button.active {
+            background: var(--accent-soft);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(10, 132, 255, 0.25);
         }
 
         /* Glass component */
@@ -617,6 +654,10 @@
                 max-width: 90%;
                 padding: 0.875rem 1rem;
             }
+            .lang-switcher button {
+                padding: 0.35rem 0.65rem;
+                font-size: 0.75rem;
+            }
         }
     </style>
 </head>
@@ -630,7 +671,12 @@
     <div class="container">
         <header>
             <h1>REMI</h1>
-            <p>Upload a file, get a summary, then ask follow-up questions.</p>
+            <p data-i18n="app_subtitle">Upload a file, get a summary, then ask follow-up questions.</p>
+            <nav class="lang-switcher" id="lang-switcher" aria-label="Language selector">
+                <button data-lang="en" aria-label="English">English</button>
+                <button data-lang="hi" aria-label="हिन्दी">हिन्दी</button>
+                <button data-lang="te" aria-label="తెలుగు">తెలుగు</button>
+            </nav>
         </header>
 
         <section id="upload-section">
@@ -642,8 +688,8 @@
                         <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
                 </div>
-                <h2>Drop your file here</h2>
-                <p>or click anywhere in this area to browse</p>
+                <h2 data-i18n="drop_file">Drop your file here</h2>
+                <p data-i18n="click_to_browse">or click anywhere in this area to browse</p>
                 <div class="formats">
                     <span class="format-tag">PDF</span>
                     <span class="format-tag">DOCX</span>
@@ -655,18 +701,18 @@
             </div>
             <div class="loading hidden" id="upload-loading">
                 <div class="spinner"></div>
-                <span>Reading and summarizing...</span>
+                <span data-i18n="upload_reading">Reading and summarizing...</span>
             </div>
         </section>
 
         <section id="app-section" class="hidden">
             <div class="top-bar">
-                <button class="new-doc-btn" id="new-doc-btn">New document</button>
+                <button class="new-doc-btn" id="new-doc-btn" data-i18n="new_document">New document</button>
             </div>
             <div class="truncate-warning hidden" id="truncate-warning"></div>
             <div class="app-layout">
                 <div class="summary-card glass">
-                    <h2>Summary</h2>
+                    <h2 data-i18n="summary_heading">Summary</h2>
                     <div class="summary-body" id="summary-body"></div>
                     <div class="meta" id="summary-meta"></div>
                 </div>
@@ -679,19 +725,19 @@
                                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                                 </svg>
                             </div>
-                            <h3>Welcome to REMI</h3>
-                            <p>Ask me anything about your document. I will find the most relevant sections and answer from them.</p>
+                            <h3 data-i18n="chat_welcome_title">Welcome to REMI</h3>
+                            <p data-i18n="chat_welcome_text">Ask me anything about your document. I will find the most relevant sections and answer from them.</p>
                         </div>
                     </div>
                     <div class="input-area">
-                        <input type="text" id="question-input" placeholder="Ask a question about your document..." autocomplete="off">
-                        <button id="send-btn">Send</button>
+                        <input type="text" id="question-input" placeholder="Ask a question about your document..." autocomplete="off" data-i18n-attr="placeholder" data-i18n="question_placeholder">
+                        <button id="send-btn" data-i18n="send_button">Send</button>
                     </div>
                 </div>
             </div>
             <div class="loading hidden" id="chat-loading">
                 <div class="spinner"></div>
-                <span>REMI is thinking...</span>
+                <span data-i18n="thinking">REMI is thinking...</span>
             </div>
         </section>
     </div>
@@ -713,11 +759,157 @@
         const sendBtn = document.getElementById("send-btn");
         const chatLoading = document.getElementById("chat-loading");
         const newDocBtn = document.getElementById("new-doc-btn");
+        const langSwitcher = document.getElementById("lang-switcher");
 
         let documentId = null;
         let isAsking = false;
+        let lastUploadMeta = { page_count: 0, pages_read: 0, file_type: "" };
 
-        // Upload interactions
+        // ----------------------------------------------------------------------
+        // i18n / l10n
+        // ----------------------------------------------------------------------
+        const DEFAULT_LANG = "en";
+        const SUPPORTED_LANGS = ["en", "hi", "te"];
+
+        const TRANSLATIONS = {
+            en: {
+                app_title: "REMI",
+                app_subtitle: "Upload a file, get a summary, then ask follow-up questions.",
+                drop_file: "Drop your file here",
+                click_to_browse: "or click anywhere in this area to browse",
+                upload_reading: "Reading and summarizing...",
+                new_document: "New document",
+                summary_heading: "Summary",
+                pages_label: "{count} pages",
+                slides_label: "{count} slides",
+                lines_label: "{count} lines",
+                pages_unit: "pages",
+                slides_unit: "slides",
+                lines_unit: "lines",
+                truncation_warning: "Large document — REMI read the first {pages_read} {unit}.",
+                chat_welcome_title: "Welcome to REMI",
+                chat_welcome_text: "Ask me anything about your document. I will find the most relevant sections and answer from them.",
+                question_placeholder: "Ask a question about your document...",
+                send_button: "Send",
+                thinking: "REMI is thinking...",
+                unsupported_file_alert: "Please upload a supported file (.pdf, .docx, .pptx, .txt, .md).",
+                upload_failed_prefix: "Upload failed",
+                request_failed_prefix: "Request failed",
+                error_prefix: "Error",
+            },
+            hi: {
+                app_title: "REMI",
+                app_subtitle: "फ़ाइल अपलोड करें, सारांश प्राप्त करें, फिर अनुवर्ती प्रश्न पूछें।",
+                drop_file: "अपनी फ़ाइल यहाँ छोड़ें",
+                click_to_browse: "या ब्राउज़ करने के लिए इस क्षेत्र में कहीं भी क्लिक करें",
+                upload_reading: "पढ़ रहा हूँ और सारांश तैयार कर रहा हूँ...",
+                new_document: "नया दस्तावेज़",
+                summary_heading: "सारांश",
+                pages_label: "{count} पृष्ठ",
+                slides_label: "{count} स्लाइड",
+                lines_label: "{count} पंक्तियाँ",
+                pages_unit: "पृष्ठ",
+                slides_unit: "स्लाइड",
+                lines_unit: "पंक्तियाँ",
+                truncation_warning: "बड़ा दस्तावेज़ — REMI ने पहले {pages_read} {unit} पढ़े।",
+                chat_welcome_title: "REMI में आपका स्वागत है",
+                chat_welcome_text: "अपने दस्तावेज़ के बारे में कुछ भी पूछें। मैं सबसे प्रासंगिक अनुभाग ढूंढूंगा और उनसे उत्तर दूंगा।",
+                question_placeholder: "अपने दस्तावेज़ के बारे में एक प्रश्न पूछें...",
+                send_button: "भेजें",
+                thinking: "REMI सोच रहा है...",
+                unsupported_file_alert: "कृपया एक समर्थित फ़ाइल अपलोड करें (.pdf, .docx, .pptx, .txt, .md)।",
+                upload_failed_prefix: "अपलोड विफल",
+                request_failed_prefix: "अनुरोध विफल",
+                error_prefix: "त्रुटि",
+            },
+            te: {
+                app_title: "REMI",
+                app_subtitle: "ఫైల్‌ను అప్‌లోడ్ చేయండి, సారాంశం పొందండి, తర్వాత అనుసరణ ప్రశ్నలు అడగండి.",
+                drop_file: "మీ ఫైల్‌ను ఇక్కడ జాపండి",
+                click_to_browse: "లేదా బ్రౌజ్ చేయడానికి ఈ ప్రాంతంలో ఎక్కడైనా క్లిక్ చేయండి",
+                upload_reading: "చదువుతూ సారాంశం తయారు చేస్తున్నాను...",
+                new_document: "కొత్త పత్రం",
+                summary_heading: "సారాంశం",
+                pages_label: "{count} పేజీలు",
+                slides_label: "{count} స్లైడ్లు",
+                lines_label: "{count} పంక్తులు",
+                pages_unit: "పేజీలు",
+                slides_unit: "స్లైడ్లు",
+                lines_unit: "పంక్తులు",
+                truncation_warning: "పెద్ద పత్రం — REMI మొదటి {pages_read} {unit} మాత్రమే చదివింది.",
+                chat_welcome_title: "REMI కు స్వాగతం",
+                chat_welcome_text: "మీ పత్రం గురించి ఏదైనా అడగండి. నేను అత్యంత సంబంధిత విభాగాలను కనుగొని అవి నుండి సమాధానం ఇస్తాను.",
+                question_placeholder: "మీ పత్రం గురించి ఒక ప్రశ్న అడగండి...",
+                send_button: "పంపు",
+                thinking: "REMI ఆలోచిస్తోంది...",
+                unsupported_file_alert: "దయచేసి మద్దతు ఉన్న ఫైల్‌ను అప్‌లోడ్ చేయండి (.pdf, .docx, .pptx, .txt, .md).",
+                upload_failed_prefix: "అప్‌లోడ్ విఫలమైంది",
+                request_failed_prefix: "అభ్యర్థన విఫలమైంది",
+                error_prefix: "లోపం",
+            },
+        };
+
+        const LANGUAGE_NAMES = {
+            en: { en: "English", hi: "Hindi", te: "Telugu" },
+            hi: { en: "अंग्रेज़ी", hi: "हिन्दी", te: "तेलुगु" },
+            te: { en: "ఆంగ్లం", hi: "హిందీ", te: "తెలుగు" },
+        };
+
+        let currentLang = localStorage.getItem("remi-lang") || DEFAULT_LANG;
+        if (!SUPPORTED_LANGS.includes(currentLang)) {
+            currentLang = DEFAULT_LANG;
+        }
+
+        function t(key, vars = {}) {
+            const catalog = TRANSLATIONS[currentLang] || TRANSLATIONS[DEFAULT_LANG];
+            let text = catalog[key] || TRANSLATIONS[DEFAULT_LANG][key] || key;
+            for (const [k, v] of Object.entries(vars)) {
+                text = text.replace(`{${k}}`, v);
+            }
+            return text;
+        }
+
+        function setLanguage(lang) {
+            if (!SUPPORTED_LANGS.includes(lang)) return;
+            currentLang = lang;
+            localStorage.setItem("remi-lang", lang);
+            document.documentElement.lang = lang;
+            applyTranslations();
+            updateLanguageSwitcher();
+            // Refresh dynamic content that was rendered from templates.
+            if (documentId) {
+                renderSummaryMeta();
+                renderTruncateWarning();
+            }
+        }
+
+        function applyTranslations() {
+            document.title = t("app_title");
+
+            document.querySelectorAll("[data-i18n]").forEach((el) => {
+                const key = el.getAttribute("data-i18n");
+                const attr = el.getAttribute("data-i18n-attr");
+                if (attr) {
+                    el.setAttribute(attr, t(key));
+                } else {
+                    el.textContent = t(key);
+                }
+            });
+        }
+
+        function updateLanguageSwitcher() {
+            langSwitcher.querySelectorAll("button").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.lang === currentLang);
+            });
+        }
+
+        langSwitcher.querySelectorAll("button").forEach((btn) => {
+            btn.addEventListener("click", () => setLanguage(btn.dataset.lang));
+        });
+
+        // ----------------------------------------------------------------------
+        // Upload
+        // ----------------------------------------------------------------------
         uploadZone.addEventListener("click", () => fileInput.click());
 
         uploadZone.addEventListener("dragover", (e) => {
@@ -749,10 +941,43 @@
             return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
         }
 
+        function unitLabel(fileType, count) {
+            if (fileType === "pdf") return t("pages_label", { count });
+            if (fileType === "pptx") return t("slides_label", { count });
+            return t("lines_label", { count });
+        }
+
+        function renderSummaryMeta() {
+            if (!documentId) return;
+            const { page_count, file_type } = lastUploadMeta;
+            summaryMeta.innerHTML = `
+                <span>${unitLabel(file_type, page_count)}</span>
+                <span class="meta-dot"></span>
+                <span>${file_type.toUpperCase()}</span>
+            `;
+        }
+
+        function renderTruncateWarning() {
+            if (!documentId) return;
+            const { pages_read, file_type } = lastUploadMeta;
+            if (lastUploadMeta.truncated) {
+                let unitKey = "pages_unit";
+                if (file_type === "pptx") unitKey = "slides_unit";
+                else if (file_type !== "pdf") unitKey = "lines_unit";
+                truncateWarning.textContent = t("truncation_warning", {
+                    pages_read,
+                    unit: t(unitKey),
+                });
+                truncateWarning.classList.remove("hidden");
+            } else {
+                truncateWarning.classList.add("hidden");
+            }
+        }
+
         async function handleFile(file) {
             const ext = getExt(file.name);
             if (!VALID_EXTS.includes(ext)) {
-                alert("Please upload a supported file (.pdf, .docx, .pptx, .txt, .md).");
+                alert(t("unsupported_file_alert"));
                 return;
             }
 
@@ -763,45 +988,45 @@
             formData.append("file", file);
 
             try {
-                const res = await fetch(`${API_BASE}/upload`, {
+                const res = await fetch(`${API_BASE}/upload?lang=${currentLang}`, {
                     method: "POST",
                     body: formData,
                 });
                 const data = await res.json();
 
                 if (!res.ok) {
-                    throw new Error(data.detail || "Upload failed");
+                    throw new Error(data.detail || t("upload_failed_prefix"));
                 }
 
                 documentId = data.document_id;
-                summaryBody.textContent = data.summary;
-                summaryMeta.innerHTML = `
-                    <span>${data.page_count} pages</span>
-                    <span class="meta-dot"></span>
-                    <span>${data.file_type.toUpperCase()}</span>
-                `;
+                lastUploadMeta = {
+                    page_count: data.page_count,
+                    pages_read: data.pages_read,
+                    file_type: data.file_type,
+                    truncated: data.truncated,
+                };
 
-                if (data.truncated) {
-                    truncateWarning.textContent = `Large document — REMI read the first ${data.pages_read} pages.`;
-                    truncateWarning.classList.remove("hidden");
-                } else {
-                    truncateWarning.classList.add("hidden");
-                }
+                summaryBody.textContent = data.summary;
+                renderSummaryMeta();
+                renderTruncateWarning();
 
                 uploadSection.classList.add("hidden");
                 appSection.classList.remove("hidden");
                 document.querySelector('.container').classList.add('wide');
                 questionInput.focus();
             } catch (err) {
-                alert(err.message);
+                alert(`${t("error_prefix")}: ${err.message}`);
                 uploadLoading.classList.add("hidden");
                 uploadZone.classList.remove("hidden");
             }
         }
 
+        // ----------------------------------------------------------------------
         // New document
+        // ----------------------------------------------------------------------
         newDocBtn.addEventListener("click", () => {
             documentId = null;
+            lastUploadMeta = { page_count: 0, pages_read: 0, file_type: "" };
             summaryBody.textContent = "";
             summaryMeta.innerHTML = "";
             truncateWarning.classList.add("hidden");
@@ -812,8 +1037,8 @@
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                         </svg>
                     </div>
-                    <h3>Welcome to REMI</h3>
-                    <p>Ask me anything about your document. I will find the most relevant sections and answer from them.</p>
+                    <h3 data-i18n="chat_welcome_title">${t("chat_welcome_title")}</h3>
+                    <p data-i18n="chat_welcome_text">${t("chat_welcome_text")}</p>
                 </div>
             `;
             questionInput.value = "";
@@ -825,7 +1050,9 @@
             fileInput.value = "";
         });
 
-        // Chat interactions
+        // ----------------------------------------------------------------------
+        // Chat
+        // ----------------------------------------------------------------------
         function appendMessage(role, text) {
             const welcome = document.getElementById("chat-welcome");
             if (welcome) welcome.remove();
@@ -848,7 +1075,7 @@
             sendBtn.disabled = true;
 
             try {
-                const res = await fetch(`${API_BASE}/ask`, {
+                const res = await fetch(`${API_BASE}/ask?lang=${currentLang}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ document_id: documentId, question }),
@@ -856,12 +1083,12 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    throw new Error(data.detail || "Request failed");
+                    throw new Error(data.detail || t("request_failed_prefix"));
                 }
 
                 appendMessage("assistant", data.answer);
             } catch (err) {
-                appendMessage("assistant", "Error: " + err.message);
+                appendMessage("assistant", `${t("error_prefix")}: ${err.message}`);
             } finally {
                 chatLoading.classList.add("hidden");
                 sendBtn.disabled = false;
@@ -874,6 +1101,9 @@
         questionInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") askQuestion();
         });
+
+        // Initialize
+        setLanguage(currentLang);
     </script>
 </body>
 </html>
